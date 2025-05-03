@@ -8,11 +8,11 @@ from langchain.document_loaders import PyPDFLoader
 from langchain.memory import ConversationBufferMemory
 from langchain.embeddings import HuggingFaceEmbeddings
 
-# Must be the first Streamlit command after imports
+# Must be the first Streamlit command
 st.set_page_config(
     page_title="IntelliTrip Travel Bot",
     page_icon="🌍",
-    layout="wide"  # Optional parameter
+    layout="wide"
 )
 
 # --- Load API Keys from Streamlit Secrets ---
@@ -39,10 +39,10 @@ def load_pdf_and_create_vectorstore():
         documents=docs,
         embedding=embeddings
     )
-    return vectordb
+    return vectordb, docs  # Return both objects
 
 try:
-    new_db = load_pdf_and_create_vectorstore()
+    new_db, docs = load_pdf_and_create_vectorstore()  # Unpack both values
 except Exception as e:
     st.error(f"Error loading PDF: {e}")
     st.stop()
@@ -122,7 +122,7 @@ Then ask:
 Traveler's Question: {question}
 """
 
-def get_destination_suggestions(user_query, excluded_destinations=None):
+def get_destination_suggestions(user_query, excluded_destinations=None, docs=docs):
     context_text = "\n".join([doc.page_content for doc in docs])
     if excluded_destinations:
         exclusions = "\n".join([f"- {item}" for item in excluded_destinations])
@@ -166,7 +166,7 @@ if user_message:
     more_options_round = 0
 
     while selected is None:
-        suggestions = get_destination_suggestions(user_message, excluded_destinations=suggested_options_list)
+        suggestions = get_destination_suggestions(user_message, excluded_destinations=suggested_options_list, docs=docs)
         st.markdown(suggestions)
 
         city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
