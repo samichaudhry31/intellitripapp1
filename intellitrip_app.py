@@ -16,13 +16,13 @@ st.set_page_config(
 )
 
 # --- Load API Keys from Streamlit Secrets ---
-deepseek_key = st.secrets.API_KEYS.deep_seek_key
-openweather_key = st.secrets.API_KEYS.openweather_key
+deepseek_key = st.secrets["API_KEYS"]["deep_seek_key"]
+openweather_key = st.secrets["API_KEYS"]["openweather_key"]
 
 # --- Load and Process PDF ---
 @st.cache_resource
 def load_pdf_and_create_vectorstore():
-    loader = PyPDFLoader("datapdf1.pdf")
+    loader = PyPDFLoader("datapdf1.pdf")  # PDF must be in root directory
     pages = loader.load()
     
     text_splitter = RecursiveCharacterTextSplitter(
@@ -39,7 +39,7 @@ def load_pdf_and_create_vectorstore():
         documents=docs,
         embedding=embeddings
     )
-    return vectordb, docs  # Return both the vectorstore and documents
+    return vectordb, docs  # Return both vectorstore and documents
 
 try:
     new_db, processed_docs = load_pdf_and_create_vectorstore()
@@ -169,7 +169,7 @@ if user_message:
         suggestions = get_destination_suggestions(
             user_message, 
             excluded_destinations=suggested_options_list,
-            docs=processed_docs  # Pass the processed docs
+            docs=processed_docs
         )
         st.markdown(suggestions)
 
