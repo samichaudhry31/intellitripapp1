@@ -176,7 +176,10 @@ if user_message:
         city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
         suggested_options_list.extend(city_options)
 
-        selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):", key=f"dest_input_{more_options_round}")
+        selected_input = st.text_input(
+            "✍️ Type your pick (or type 'More options' or 'Exit'):", 
+            key=f"dest_input_{len(st.session_state.chat_history)}_{more_options_round}"
+        )
 
         if selected_input:
             if selected_input.lower() == 'exit':
