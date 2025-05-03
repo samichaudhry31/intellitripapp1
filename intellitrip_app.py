@@ -8,6 +8,13 @@ from langchain.document_loaders import PyPDFLoader
 from langchain.memory import ConversationBufferMemory
 from langchain.embeddings import HuggingFaceEmbeddings
 
+# Must be the first Streamlit command after imports
+st.set_page_config(
+    page_title="IntelliTrip Travel Bot",
+    page_icon="🌍",
+    layout="wide"  # Optional parameter
+)
+
 # --- Load API Keys from Streamlit Secrets ---
 deepseek_key = st.secrets.API_KEYS.deep_seek_key
 openweather_key = st.secrets.API_KEYS.openweather_key
@@ -18,14 +25,22 @@ def load_pdf_and_create_vectorstore():
     loader = PyPDFLoader("datapdf1.pdf")
     pages = loader.load()
     
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=10, length_function=len)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=150,
+        chunk_overlap=10,
+        length_function=len
+    )
     docs = text_splitter.split_documents(pages)
     
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    vectordb = FAISS.from_documents(documents=docs, embedding=embeddings)
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+    vectordb = FAISS.from_documents(
+        documents=docs,
+        embedding=embeddings
+    )
     return vectordb
 
-# Load or create vectorstore
 try:
     new_db = load_pdf_and_create_vectorstore()
 except Exception as e:
@@ -88,7 +103,7 @@ You are IntelliTrip, a witty and helpful travel assistant. ONLY use the context 
 DO NOT guess or suggest any place outside the context. Each destination must include:
 
 * **City, Country** format
-* Two short, compelling reasons why it’s worth visiting
+* Two short, compelling reasons why it's worth visiting
 * Best time to visit (if known)
 * Estimated budget in USD for a moderate traveler (include flights, hotel, and food)
 
@@ -134,8 +149,7 @@ ending_messages = [
     "🌟 I'm here to make your journey smoother — what's next?"
 ]
 
-# --- Streamlit App ---
-st.set_page_config(page_title="IntelliTrip Travel Bot", page_icon="🌍")
+# --- Streamlit App UI ---
 st.title("🌍 Welcome to IntelliTrip - Your Personal Travel Consultant!")
 st.write("💬 Mention your *budget* and *interest* for better recommendations.")
 
@@ -165,7 +179,7 @@ if user_message:
                 st.success("👋 Safe travels! Thanks for using IntelliTrip.")
                 st.stop()
             elif selected_input.lower() == 'more options':
-                st.info("🔄 Absolutely! Let’s explore more classy picks...")
+                st.info("🔄 Absolutely! Let's explore more classy picks...")
                 more_options_round += 1
                 continue
             elif selected_input in city_options:
