@@ -39,10 +39,11 @@ def load_pdf_and_create_vectorstore():
         documents=docs,
         embedding=embeddings
     )
-    return vectordb, docs  # Return both objects
+    return vectordb, docs  # Return both the vectorstore and documents
 
+# Initialize with error handling
 try:
-    new_db, docs = load_pdf_and_create_vectorstore()  # Unpack both values
+    new_db, processed_docs = load_pdf_and_create_vectorstore()  # Renamed to avoid confusion
 except Exception as e:
     st.error(f"Error loading PDF: {e}")
     st.stop()
@@ -122,7 +123,7 @@ Then ask:
 Traveler's Question: {question}
 """
 
-def get_destination_suggestions(user_query, excluded_destinations=None, docs=docs):
+def get_destination_suggestions(user_query, excluded_destinations=None, docs=processed_docs):  # Added default parameter
     context_text = "\n".join([doc.page_content for doc in docs])
     if excluded_destinations:
         exclusions = "\n".join([f"- {item}" for item in excluded_destinations])
@@ -166,7 +167,11 @@ if user_message:
     more_options_round = 0
 
     while selected is None:
-        suggestions = get_destination_suggestions(user_message, excluded_destinations=suggested_options_list, docs=docs)
+        suggestions = get_destination_suggestions(
+            user_message, 
+            excluded_destinations=suggested_options_list,
+            docs=processed_docs  # Explicitly pass the docs
+        )
         st.markdown(suggestions)
 
         city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
