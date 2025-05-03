@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+langchain
+openai
+sentence-transformers
+faiss-cpu
+requests
+python-multipart
+streamlit
+langchain-community
+pypdf
+requests
+tiktoken

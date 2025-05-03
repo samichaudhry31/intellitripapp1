@@ -1,0 +1,13 @@
+.streamlit/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+env/
+venv/
+ENV/
+env.*
+venv.*
+my_data_vector_db.faiss
