@@ -151,8 +151,10 @@ if user_message:
         city_options = [line.strip().replace("*", "") for line in suggestions.splitlines() if "*" in line]
         suggested_options_list.extend(city_options)
 
-        selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):", key=f"dest_input_{more_options_round}")
-
+        selected_input = st.text_input(
+    "✍️ Type your pick (or type 'More options' or 'Exit'):", 
+    key=f"dest_input_{more_options_round}_{random.randint(0,1000)}"  # Added random component
+)
         if selected_input:
             if selected_input.lower() == 'exit':
                 st.success("👋 Safe travels! Thanks for using IntelliTrip.")
