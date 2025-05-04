@@ -13,192 +13,175 @@ deepseek_key = st.secrets["API_KEYS"]["deep_seek_key"]
 openweather_key = st.secrets["API_KEYS"]["openweather_key"]
 
 # --- Load and Process PDF ---
-@st.cache_resource
-def load_pdf_and_create_vectorstore():
-    loader = PyPDFLoader("datapdf1.pdf")
-    pages = loader.load()
-    
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=150,
-        chunk_overlap=10,
-        length_function=len
-    )
-    docs = text_splitter.split_documents(pages)
-    
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
-    vectordb = FAISS.from_documents(
-        documents=docs,
-        embedding=embeddings
-    )
-    return vectordb, docs
-
-try:
-    new_db, processed_docs = load_pdf_and_create_vectorstore()
-except Exception as e:
-    st.error(f"Error loading PDF: {e}")
-    st.stop()
+loader = PyPDFLoader("datapdf1.pdf")
+pages = loader.load()
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=10, length_function=len)
+docs = text_splitter.split_documents(pages)
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+vectordb = FAISS.from_documents(documents=docs, embedding=embeddings)
+vectordb.save_local('my_data_vector_db.faiss')
+new_db = FAISS.load_local('my_data_vector_db.faiss', embeddings=embeddings, allow_dangerous_deserialization=True)
 
 # --- Language Model ---
-llm_deepseek = ChatOpenAI(
-    model='deepseek-chat',
-    base_url="https://api.deepseek.com",
-    api_key=deepseek_key,
-    temperature=0
-)
+llm_deepseek = ChatOpenAI(model='deepseek-chat', base_url="https://api.deepseek.com", api_key=deepseek_key, temperature=0)
+
+# --- Memory ---
+memory = ConversationBufferMemory(memory_key="chat_history", output_key='answer', return_messages=True, buffer="chat_history")
 
 # --- Weather Function ---
 def get_current_weather(destination, api_key):
-    try:
-        geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={destination}&limit=1&appid={api_key}"
-        geo_response = requests.get(geo_url).json()
-        if not geo_response:
-            return None, None, "⚠️ Couldn't find location"
-        lat = geo_response[0]['lat']
-        lon = geo_response[0]['lon']
-        weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric"
-        weather_response = requests.get(weather_url).json()
-        if 'main' in weather_response:
-            temp = weather_response['main']['temp']
-            desc = weather_response['weather'][0]['description'].capitalize()
-            return temp, desc, f"🌡️ {destination}: {temp}°C, {desc}"
-        return None, None, "⚠️ Weather info unavailable"
-    except Exception:
-        return None, None, "⚠️ Error fetching weather"
+    geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={destination}&limit=1&appid={api_key}"
+    geo_response = requests.get(geo_url).json()
+    if not geo_response:
+        return None, None, "⚠️ Couldn't find the location for weather info."
+    lat = geo_response[0]['lat']
+    lon = geo_response[0]['lon']
+    weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric"
+    weather_response = requests.get(weather_url).json()
+    if 'main' in weather_response:
+        temp = weather_response['main']['temp']
+        desc = weather_response['weather'][0]['description'].capitalize()
+        weather_text = f"🌡️ {destination}: {temp}°C, {desc}."
+        return temp, desc, weather_text
+    else:
+        return None, None, "⚠️ Weather info not available."
 
-# --- Core Functions ---
+# --- Packing Suggestions ---
 def get_packing_suggestions(temp, desc):
-    prompt = f"List 4-5 essential items for {temp}°C weather ({desc}) with emojis:"
-    return llm_deepseek.invoke(prompt).content
+    prompt = f"List 4-5 essential things a traveler should pack for {temp}°C weather described as \"{desc}\". Keep it clean and simple with emojis."
+    response = llm_deepseek.invoke(prompt)
+    return response.content
 
+# --- Day-wise Itinerary ---
 def get_itinerary(selected, days):
-    prompt = f"Create a {days}-day itinerary for {selected} with daily highlights:"
-    return llm_deepseek.invoke(prompt).content
+    prompt = f"Suggest a simple {days}-day itinerary for {selected}. For each day, give one main activity or highlight only. Use clean bullet points."
+    response = llm_deepseek.invoke(prompt)
+    return response.content
 
+# --- Destination Suggestions from PDF ---
 destination_prompt_template = r"""
-You are IntelliTrip travel assistant. Use context below to suggest destinations:
+You are IntelliTrip, a witty and helpful travel assistant. ONLY use the context provided inside the triple backticks to suggest destinations.
+DO NOT guess or suggest any place outside the context. Each destination must include:
 
-* City, Country format
-* 2 reasons to visit
-* Best time to visit
-* Estimated budget
+* **City, Country** format
+* Two short, compelling reasons why it’s worth visiting
+* Best time to visit (if known)
+* Estimated budget in USD for a moderate traveler (include flights, hotel, and food)
 
-Format:
+Show EXACTLY two options using this format:
 **City, Country**
-* Reason 1
-* Reason 2
-* 📅 Best time: <>
-* 💰 Budget: $<>
+* Line 1
+* Line 2
+* Line 3
+* 📅 Best time to visit: <value from data>
+* 💰 Estimated budget: $<amount> USD
 
-Ask: 🌟 Select one that suits you
+Then ask:
+🌟 Please select the one that best suits you.
 
-Context: ```{context}```
-Question: {question}
+--- `{context}` ---
+Traveler's Question: {question}
 """
 
-def get_destination_suggestions(query, excluded=None):
-    context = "\n".join([doc.page_content for doc in processed_docs])
-    excluded = excluded or []
-    exclusion_note = f"\nAvoid: {', '.join(excluded)}\n" if excluded else ""
-    return llm_deepseek.invoke(exclusion_note + destination_prompt_template.format(
-        context=context, question=query
-    )).content
+def get_destination_suggestions(user_query, excluded_destinations=None):
+    context_text = "\n".join([doc.page_content for doc in docs])
+    if excluded_destinations:
+        exclusions = "\n".join([f"- {item}" for item in excluded_destinations])
+        exclusion_note = f"\nAvoid repeating these destinations:\n{exclusions}\n"
+    else:
+        exclusion_note = ""
+    final_prompt = destination_prompt_template.format(context=context_text, question=user_query)
+    full_prompt = exclusion_note + final_prompt
+    response = llm_deepseek.invoke(full_prompt)
+    return response.content
+
+# --- Food Recommendations ---
+def get_food_recommendations(selected):
+    prompt = f"Give 2-3 simple food recommendations or top dishes to try in {selected}. Keep the response clean and straightforward."
+    response = llm_deepseek.invoke(prompt)
+    return response.content
+
+# --- Ending Messages ---
+ending_messages = [
+    "✨ Let me know what else I can do for you! ✈️😎",
+    "🧳 Ready when you are for your next destination!",
+    "🌟 I'm here to make your journey smoother — what's next?"
+]
 
 # --- Streamlit App ---
 st.set_page_config(page_title="IntelliTrip Travel Bot", page_icon="🌍")
-st.title("🌍 IntelliTrip - Personal Travel Consultant")
+st.title("🌍 Welcome to IntelliTrip - Your Personal Travel Consultant!")
+st.write("💬 Mention your *budget* and *interest* for better recommendations.")
 
-# Session State Initialization
-if 'app_state' not in st.session_state:
-    st.session_state.app_state = {
-        'selected': None,
-        'suggestions': [],
-        'options_round': 0,
-        'user_query': None
-    }
+# --- Initialize Session State ---
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+if 'selected_dest' not in st.session_state:
+    st.session_state.selected_dest = None
+if 'suggested_list' not in st.session_state:
+    st.session_state.suggested_list = []
+if 'suggestions_text' not in st.session_state:
+    st.session_state.suggestions_text = ""
+if 'user_message' not in st.session_state:
+    st.session_state.user_message = ""
+if 'more_round' not in st.session_state:
+    st.session_state.more_round = 0
 
-user_input = st.text_input("How can I help plan your trip? (Type & Enter)")
-
-if user_input:
-    # Initialize new search
-    if not st.session_state.app_state['user_query']:
-        st.session_state.app_state = {
-            'selected': None,
-            'suggestions': [],
-            'options_round': 0,
-            'user_query': user_input
-        }
-    
-    state = st.session_state.app_state
-    
-    if not state['selected']:
-        # Show destination suggestions
-        suggestions = get_destination_suggestions(
-            state['user_query'], 
-            excluded=state['suggestions']
-        )
+# --- User Input ---
+if st.session_state.selected_dest is None:
+    user_input = st.text_input("How can I help you plan your trip today? (Type and press Enter)")
+    if user_input:
+        st.session_state.user_message = user_input
+        suggestions = get_destination_suggestions(user_input, excluded_destinations=st.session_state.suggested_list)
+        st.session_state.suggestions_text = suggestions
         st.markdown(suggestions)
-        
-        # Extract city options
-        city_options = [line.strip().replace("**", "") 
-                       for line in suggestions.splitlines() 
-                       if "**" in line]
-        state['suggestions'].extend(city_options)
-        
-        # User input handling
-        choice = st.text_input(
-            "✍️ Choose destination (or 'More options'/'Exit'):",
-            key=f"choice_{state['options_round']}"
-        )
-        
-        if choice:
-            if choice.lower() == 'exit':
-                st.success("👋 Safe travels!")
+
+        city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
+        st.session_state.suggested_list.extend(city_options)
+
+        selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):", key=f"dest_input_{st.session_state.more_round}")
+
+        if selected_input:
+            if selected_input.lower() == 'exit':
+                st.success("👋 Safe travels! Thanks for using IntelliTrip.")
                 st.stop()
-            elif choice.lower() == 'more options':
-                state['options_round'] += 1
-                st.experimental_rerun()
-            elif choice in city_options:
-                state['selected'] = choice
-                st.experimental_rerun()
+            elif selected_input.lower() == 'more options':
+                st.info("🔄 Absolutely! Let’s explore more classy picks...")
+                st.session_state.more_round += 1
+                # generate new suggestions
+                suggestions = get_destination_suggestions(user_input, excluded_destinations=st.session_state.suggested_list)
+                st.session_state.suggestions_text = suggestions
+                st.markdown(suggestions)
+                city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
+                st.session_state.suggested_list.extend(city_options)
+            elif selected_input in city_options:
+                st.session_state.selected_dest = selected_input
+                st.success(f"🎯 Fabulous choice! Let me tailor plans for **{selected_input}**...")
             else:
-                st.warning("⚠️ Please select a valid option")
-    
-    # Show trip details after selection
-    if state['selected']:
-        st.success(f"🎯 Planning trip for {state['selected']}...")
-        
-        days = st.number_input("📆 Trip duration (days):", 1, 30, 3)
-        
-        st.subheader("📅 Itinerary")
-        st.markdown(get_itinerary(state['selected'], days))
-        
-        st.subheader("🧭 Local Cuisine")
-        st.markdown(llm_deepseek.invoke(
-            f"Suggest 2-3 must-try foods in {state['selected']}:"
-        ).content)
-        
-        temp, desc, weather = get_current_weather(state['selected'], openweather_key)
-        st.subheader("🌦️ Weather")
-        st.write(weather)
-        
-        if temp and desc:
-            st.subheader("🎒 Packing List")
-            st.markdown(get_packing_suggestions(temp, desc))
-        
-        st.balloons()
-        st.info(random.choice([
-            "✨ Need more help? Ask away!",
-            "🧳 Ready for your next adventure!",
-            "🌟 Happy travels!"
-        ]))
-        
-        if st.button("Start New Trip"):
-            st.session_state.app_state = {
-                'selected': None,
-                'suggestions': [],
-                'options_round': 0,
-                'user_query': None
-            }
-            st.experimental_rerun()
+                st.warning("⚠️ Please type a valid option from the list above, or type 'More options' or 'Exit'.")
+
+# --- If destination selected, continue trip planning ---
+if st.session_state.selected_dest:
+    days = st.number_input("📆 How many days will you be enjoying there?", min_value=1, step=1, value=3)
+
+    st.subheader("📅 Itinerary")
+    itinerary = get_itinerary(st.session_state.selected_dest, days)
+    st.markdown(itinerary)
+
+    st.subheader("🧭 Local Flavors")
+    food_tips = get_food_recommendations(st.session_state.selected_dest)
+    st.markdown(food_tips)
+
+    temp, desc, weather_report = get_current_weather(st.session_state.selected_dest, openweather_key)
+    st.subheader("🌦️ Weather Report")
+    st.write(weather_report)
+
+    if temp is not None and desc is not None:
+        st.subheader("🎒 Packing Suggestions")
+        packing_suggestions = get_packing_suggestions(temp, desc)
+        st.markdown(packing_suggestions)
+    else:
+        st.warning("⚠️ Skipping packing suggestions due to missing weather data.")
+
+    st.balloons()
+    st.info(random.choice(ending_messages))
