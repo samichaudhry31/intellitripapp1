@@ -13,20 +13,33 @@ deepseek_key = st.secrets["API_KEYS"]["deep_seek_key"]
 openweather_key = st.secrets["API_KEYS"]["openweather_key"]
 
 # --- Load and Process PDF ---
-loader = PyPDFLoader("datapdf1.pdf")
+loader = PyPDFLoader("datapdf1.pdf")  # PDF must be in root directory
 pages = loader.load()
+
+# --- Text Splitting & Embedding ---
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=10, length_function=len)
 docs = text_splitter.split_documents(pages)
+
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 vectordb = FAISS.from_documents(documents=docs, embedding=embeddings)
 vectordb.save_local('my_data_vector_db.faiss')
 new_db = FAISS.load_local('my_data_vector_db.faiss', embeddings=embeddings, allow_dangerous_deserialization=True)
 
 # --- Language Model ---
-llm_deepseek = ChatOpenAI(model='deepseek-chat', base_url="https://api.deepseek.com", api_key=deepseek_key, temperature=0)
+llm_deepseek = ChatOpenAI(
+    model='deepseek-chat',
+    base_url="https://api.deepseek.com",
+    api_key=deepseek_key,
+    temperature=0
+)
 
 # --- Memory ---
-memory = ConversationBufferMemory(memory_key="chat_history", output_key='answer', return_messages=True, buffer="chat_history")
+memory = ConversationBufferMemory(
+    memory_key="chat_history",
+    output_key='answer',
+    return_messages=True,
+    buffer="chat_history"
+)
 
 # --- Weather Function ---
 def get_current_weather(destination, api_key):
@@ -48,13 +61,17 @@ def get_current_weather(destination, api_key):
 
 # --- Packing Suggestions ---
 def get_packing_suggestions(temp, desc):
-    prompt = f"List 4-5 essential things a traveler should pack for {temp}°C weather described as \"{desc}\". Keep it clean and simple with emojis."
+    prompt = f"""
+    List 4-5 essential things a traveler should pack for {temp}°C weather described as "{desc}". Keep it clean and simple with emojis.
+    """
     response = llm_deepseek.invoke(prompt)
     return response.content
 
 # --- Day-wise Itinerary ---
 def get_itinerary(selected, days):
-    prompt = f"Suggest a simple {days}-day itinerary for {selected}. For each day, give one main activity or highlight only. Use clean bullet points."
+    prompt = f"""
+    Suggest a simple {days}-day itinerary for {selected}. For each day, give one main activity or highlight only. Use clean bullet points.
+    """
     response = llm_deepseek.invoke(prompt)
     return response.content
 
@@ -97,7 +114,9 @@ def get_destination_suggestions(user_query, excluded_destinations=None):
 
 # --- Food Recommendations ---
 def get_food_recommendations(selected):
-    prompt = f"Give 2-3 simple food recommendations or top dishes to try in {selected}. Keep the response clean and straightforward."
+    prompt = f"""
+    Give 2-3 simple food recommendations or top dishes to try in {selected}. Keep the response clean and straightforward.
+    """
     response = llm_deepseek.invoke(prompt)
     return response.content
 
@@ -113,33 +132,26 @@ st.set_page_config(page_title="IntelliTrip Travel Bot", page_icon="🌍")
 st.title("🌍 Welcome to IntelliTrip - Your Personal Travel Consultant!")
 st.write("💬 Mention your *budget* and *interest* for better recommendations.")
 
-# --- Initialize Session State ---
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
-if 'selected_dest' not in st.session_state:
-    st.session_state.selected_dest = None
-if 'suggested_list' not in st.session_state:
-    st.session_state.suggested_list = []
-if 'suggestions_text' not in st.session_state:
-    st.session_state.suggestions_text = ""
-if 'user_message' not in st.session_state:
-    st.session_state.user_message = ""
-if 'more_round' not in st.session_state:
-    st.session_state.more_round = 0
 
-# --- User Input ---
-if st.session_state.selected_dest is None:
-    user_input = st.text_input("How can I help you plan your trip today? (Type and press Enter)")
-    if user_input:
-        st.session_state.user_message = user_input
-        suggestions = get_destination_suggestions(user_input, excluded_destinations=st.session_state.suggested_list)
-        st.session_state.suggestions_text = suggestions
+user_message = st.text_input("How can I help you plan your trip today? (Type and press Enter)")
+
+if user_message:
+    st.session_state.chat_history.append({"role": "user", "message": user_message})
+
+    suggested_options_list = []
+    selected = None
+    more_options_round = 0
+
+    while selected is None:
+        suggestions = get_destination_suggestions(user_message, excluded_destinations=suggested_options_list)
         st.markdown(suggestions)
 
         city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
-        st.session_state.suggested_list.extend(city_options)
+        suggested_options_list.extend(city_options)
 
-        selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):", key=f"dest_input_{st.session_state.more_round}")
+        selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):", key=f"dest_input_{more_options_round}")
 
         if selected_input:
             if selected_input.lower() == 'exit':
@@ -147,32 +159,25 @@ if st.session_state.selected_dest is None:
                 st.stop()
             elif selected_input.lower() == 'more options':
                 st.info("🔄 Absolutely! Let’s explore more classy picks...")
-                st.session_state.more_round += 1
-                # generate new suggestions
-                suggestions = get_destination_suggestions(user_input, excluded_destinations=st.session_state.suggested_list)
-                st.session_state.suggestions_text = suggestions
-                st.markdown(suggestions)
-                city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
-                st.session_state.suggested_list.extend(city_options)
+                more_options_round += 1
+                continue
             elif selected_input in city_options:
-                st.session_state.selected_dest = selected_input
-                st.success(f"🎯 Fabulous choice! Let me tailor plans for **{selected_input}**...")
+                selected = selected_input
+                st.success(f"🎯 Fabulous choice! Let me tailor plans for **{selected}**...")
             else:
                 st.warning("⚠️ Please type a valid option from the list above, or type 'More options' or 'Exit'.")
 
-# --- If destination selected, continue trip planning ---
-if st.session_state.selected_dest:
     days = st.number_input("📆 How many days will you be enjoying there?", min_value=1, step=1, value=3)
 
     st.subheader("📅 Itinerary")
-    itinerary = get_itinerary(st.session_state.selected_dest, days)
+    itinerary = get_itinerary(selected, days)
     st.markdown(itinerary)
 
     st.subheader("🧭 Local Flavors")
-    food_tips = get_food_recommendations(st.session_state.selected_dest)
+    food_tips = get_food_recommendations(selected)
     st.markdown(food_tips)
 
-    temp, desc, weather_report = get_current_weather(st.session_state.selected_dest, openweather_key)
+    temp, desc, weather_report = get_current_weather(selected, openweather_key)
     st.subheader("🌦️ Weather Report")
     st.write(weather_report)
 
