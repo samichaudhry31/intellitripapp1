@@ -13,10 +13,10 @@ deepseek_key = st.secrets["API_KEYS"]["deep_seek_key"]
 openweather_key = st.secrets["API_KEYS"]["openweather_key"]
 
 # --- Load and Process PDF ---
-loader = PyPDFLoader("datapdf1.pdf")  # PDF in root directory
+loader = PyPDFLoader("datapdf1.pdf")  # PDF must be in root directory
 pages = loader.load()
 
-# --- Text Splitting & Embedding ---
+# --- Text Splitting & Embedding --- 
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=10, length_function=len)
 docs = text_splitter.split_documents(pages)
 
@@ -80,13 +80,13 @@ destination_prompt_template = r"""
 You are IntelliTrip, a witty and helpful travel assistant. ONLY use the context provided inside the triple backticks to suggest destinations.
 DO NOT guess or suggest any place outside the context. Each destination must include:
 
-* **City, Country** format
+* *City, Country* format
 * Two short, compelling reasons why it’s worth visiting
 * Best time to visit (if known)
 * Estimated budget in USD for a moderate traveler (include flights, hotel, and food)
 
 Show EXACTLY two options using this format:
-**City, Country**
+*City, Country*
 * Line 1
 * Line 2
 * Line 3
@@ -96,7 +96,7 @@ Show EXACTLY two options using this format:
 Then ask:
 🌟 Please select the one that best suits you.
 
---- `{context}` ---
+--- {context} ---
 Traveler's Question: {question}
 """
 
@@ -130,7 +130,7 @@ ending_messages = [
 # --- Streamlit App ---
 st.set_page_config(page_title="IntelliTrip Travel Bot", page_icon="🌍")
 st.title("🌍 Welcome to IntelliTrip - Your Personal Travel Consultant!")
-st.write("💬 Mention your *budget* and *interest* for better recommendations.")
+st.write("💬 Mention your budget and interest for better recommendations.")
 
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
@@ -148,7 +148,7 @@ if user_message:
         suggestions = get_destination_suggestions(user_message, excluded_destinations=suggested_options_list)
         st.markdown(suggestions)
 
-        city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
+        city_options = [line.strip().replace("*", "") for line in suggestions.splitlines() if "*" in line]
         suggested_options_list.extend(city_options)
 
         selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):", key=f"dest_input_{more_options_round}")
@@ -163,7 +163,7 @@ if user_message:
                 continue
             elif selected_input in city_options:
                 selected = selected_input
-                st.success(f"🎯 Fabulous choice! Let me tailor plans for **{selected}**...")
+                st.success(f"🎯 Fabulous choice! Let me tailor plans for *{selected}*...")
             else:
                 st.warning("⚠️ Please type a valid option from the list above, or type 'More options' or 'Exit'.")
 
