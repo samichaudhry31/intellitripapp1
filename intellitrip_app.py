@@ -13,7 +13,7 @@ deepseek_key = st.secrets["API_KEYS"]["deep_seek_key"]
 openweather_key = st.secrets["API_KEYS"]["openweather_key"]
 
 # --- Load and Process PDF ---
-loader = PyPDFLoader("datapdf1.pdf")  # PDF must be in root directory
+loader = PyPDFLoader("datapdf1.pdf")
 pages = loader.load()
 
 # --- Text Splitting & Embedding ---
@@ -132,40 +132,52 @@ st.set_page_config(page_title="IntelliTrip Travel Bot", page_icon="🌍")
 st.title("🌍 Welcome to IntelliTrip - Your Personal Travel Consultant!")
 st.write("💬 Mention your *budget* and *interest* for better recommendations.")
 
+# --- Session State Setup ---
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
+if 'suggested_options_list' not in st.session_state:
+    st.session_state.suggested_options_list = []
+
+if 'selected_destination' not in st.session_state:
+    st.session_state.selected_destination = None
+
+if 'more_options_round' not in st.session_state:
+    st.session_state.more_options_round = 0
+
+# --- User Message Input ---
 user_message = st.text_input("How can I help you plan your trip today? (Type and press Enter)")
 
-if user_message:
+if user_message and st.session_state.selected_destination is None:
     st.session_state.chat_history.append({"role": "user", "message": user_message})
 
-    suggested_options_list = []
-    selected = None
-    more_options_round = 0
+    suggestions = get_destination_suggestions(
+        user_message,
+        excluded_destinations=st.session_state.suggested_options_list
+    )
+    st.markdown(suggestions)
 
-    while selected is None:
-        suggestions = get_destination_suggestions(user_message, excluded_destinations=suggested_options_list)
-        st.markdown(suggestions)
+    city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
+    st.session_state.suggested_options_list.extend(city_options)
 
-        city_options = [line.strip().replace("**", "") for line in suggestions.splitlines() if "**" in line]
-        suggested_options_list.extend(city_options)
+    selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):")
 
-        selected_input = st.text_input("✍️ Type your pick (or type 'More options' or 'Exit'):", key=f"dest_input_{more_options_round}")
+    if selected_input:
+        if selected_input.lower() == 'exit':
+            st.success("👋 Safe travels! Thanks for using IntelliTrip.")
+            st.stop()
+        elif selected_input.lower() == 'more options':
+            st.info("🔄 Absolutely! Let’s explore more classy picks...")
+            st.session_state.more_options_round += 1
+        elif selected_input in city_options:
+            st.session_state.selected_destination = selected_input
+            st.success(f"🎯 Fabulous choice! Let me tailor plans for **{selected_input}**...")
+        else:
+            st.warning("⚠️ Please type a valid option from the list above, or type 'More options' or 'Exit'.")
 
-        if selected_input:
-            if selected_input.lower() == 'exit':
-                st.success("👋 Safe travels! Thanks for using IntelliTrip.")
-                st.stop()
-            elif selected_input.lower() == 'more options':
-                st.info("🔄 Absolutely! Let’s explore more classy picks...")
-                more_options_round += 1
-                continue
-            elif selected_input in city_options:
-                selected = selected_input
-                st.success(f"🎯 Fabulous choice! Let me tailor plans for **{selected}**...")
-            else:
-                st.warning("⚠️ Please type a valid option from the list above, or type 'More options' or 'Exit'.")
+# --- Show Itinerary and Details After Destination Selection ---
+if st.session_state.selected_destination:
+    selected = st.session_state.selected_destination
 
     days = st.number_input("📆 How many days will you be enjoying there?", min_value=1, step=1, value=3)
 
